@@ -30,28 +30,21 @@ openssl genrsa -out Identity.Api/Identity.Api/keys/jwt-private.pem 2048
 openssl rsa -in Identity.Api/Identity.Api/keys/jwt-private.pem -pubout -out Campaigns.Api/Campaigns.Api/keys/jwt-public.pem
 ```
 
-### 2. Gerar as migrations do EF Core (só na primeira vez / após mudar entidades)
+### 2. Migrations do EF Core
+
+As migrations dos 3 serviços já estão no repositório (`*/Persistence/Migrations/`) — **não precisa gerar nem aplicar nada manualmente**. Cada serviço roda `Database.MigrateAsync()` sozinho no próprio startup (dentro do container), contra o banco vazio criado no passo 6.
+
+Só é preciso gerar uma migration nova se você alterar uma entidade (ex.: adicionar uma coluna). Exemplo pro `Campaigns.Api`:
 
 ```bash
 dotnet tool update --global dotnet-ef
 
-dotnet ef migrations add InitialCreate \
-  --project Identity.Api/Identity.Infrastructure/Identity.Infrastructure.csproj \
-  --startup-project Identity.Api/Identity.Infrastructure/Identity.Infrastructure.csproj \
-  --output-dir Persistence/Migrations
-
-dotnet ef migrations add InitialCreate \
+dotnet ef migrations add NomeDaMudanca \
   --project Campaigns.Api/Campaigns.Infrastructure/Campaigns.Infrastructure.csproj \
   --startup-project Campaigns.Api/Campaigns.Infrastructure/Campaigns.Infrastructure.csproj \
   --output-dir Persistence/Migrations
-
-dotnet ef migrations add InitialCreate \
-  --project Donations.Worker/Donations.Infrastructure/Donations.Infrastructure.csproj \
-  --startup-project Donations.Worker/Donations.Infrastructure/Donations.Infrastructure.csproj \
-  --output-dir Persistence/Migrations
 ```
-
-Cada serviço aplica sua própria migration automaticamente no startup — não precisa rodar `database update` manualmente.
+(troque o projeto/caminho para `Identity.Api/Identity.Infrastructure` ou `Donations.Worker/Donations.Infrastructure` conforme o serviço.)
 
 ### 3. Build das 3 imagens Docker
 
@@ -160,24 +153,55 @@ email: admin@esperancasolidaria.org
 senha: Admin@12345
 ```
 
+## Endpoints
+
+| Serviço | Método | Rota | Acesso |
+|---|---|---|---|
+| `Identity.Api` | POST | `/auth/login` | Público |
+| `Identity.Api` | POST | `/donors` | Público (cadastro de doador) |
+| `Campaigns.Api` | POST | `/campaigns` | `NgoManager` |
+| `Campaigns.Api` | PUT | `/campaigns/{id}` | `NgoManager` |
+| `Campaigns.Api` | GET | `/campaigns/{id}` | Autenticado (qualquer role) |
+| `Campaigns.Api` | GET | `/campaigns/public` | Público (só campanhas `Active`) |
+| `Campaigns.Api` | POST | `/donations` | `Donor` |
+| `Donations.Worker` | — | (sem API de negócio, só consumer) | `/health`, `/metrics` |
+
+Detalhes completos de cada payload/resposta: Swagger de cada serviço (URLs na seção anterior).
+
 ## Testando a ponta a ponta (exemplo com curl)
 
 ```bash
-# 1. Login como gestor
+# 1. Login como gestor (seed)
 NGO_TOKEN=$(curl -s -X POST http://localhost:5010/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@esperancasolidaria.org","password":"Admin@12345"}' \
   | grep -oP '(?<="accessToken":")[^"]+')
 
 # 2. Criar uma campanha
-curl -s -X POST http://localhost:5011/campaigns \
+CAMPAIGN=$(curl -s -X POST http://localhost:5011/campaigns \
   -H "Content-Type: application/json" -H "Authorization: Bearer $NGO_TOKEN" \
-  -d '{"title":"Campanha de Inverno","description":"Agasalhos","startDate":"2026-09-02T00:00:00Z","endDate":"2026-10-01T00:00:00Z","financialGoal":10000}'
+  -d '{"title":"Campanha de Inverno","description":"Agasalhos","startDate":"2026-09-02T00:00:00Z","endDate":"2027-12-31T00:00:00Z","financialGoal":10000}')
+CAMPAIGN_ID=$(echo "$CAMPAIGN" | grep -oP '(?<="id":")[^"]+')
+echo "$CAMPAIGN"
 
-# 3. Cadastrar (POST /donors) e logar (POST /auth/login) como doador, depois enviar POST /donations
-#    com o CampaignId da campanha criada acima e o token do doador
+# 3. Cadastrar e logar como doador (CPF precisa ter dígito verificador válido)
+curl -s -X POST http://localhost:5010/donors \
+  -H "Content-Type: application/json" \
+  -d '{"fullName":"Doador Teste","email":"doador@example.com","cpf":"11144477735","password":"Doador@12345"}'
 
-# 4. Conferir o painel público — o valor é atualizado pelo Donations.Worker de forma assíncrona
+DONOR_TOKEN=$(curl -s -X POST http://localhost:5010/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"doador@example.com","password":"Doador@12345"}' \
+  | grep -oP '(?<="accessToken":")[^"]+')
+
+# 4. Enviar a doação (o DonorId vem das claims do token, não precisa informar)
+curl -s -X POST http://localhost:5011/donations \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $DONOR_TOKEN" \
+  -d "{\"campaignId\":\"$CAMPAIGN_ID\",\"donationAmount\":150.00}"
+
+# 5. Conferir o painel público — o valor é atualizado pelo Donations.Worker de forma assíncrona
+#    (pode levar 1-2s; a doação passa por Campaigns.Api -> RabbitMQ -> Donations.Worker antes de aparecer aqui)
+sleep 2
 curl -s http://localhost:5011/campaigns/public
 ```
 
@@ -197,4 +221,4 @@ dotnet test ConexaoSolidaria.slnx
 
 `.github/workflows/ci.yml` — dispara em push/PR pra `main`. Build + testes .NET rodam sempre; a build de cada imagem Docker passa por scan de vulnerabilidades com **Trivy** (relatório completo sobe pra aba *Security* do GitHub, e falha o pipeline se achar algo `CRITICAL` com correção disponível) antes de publicar em `ghcr.io/<owner>/<repo>/<serviço>` — só a partir de um push real em `main`.
 
-> Esse workflow só roda depois que o repositório existir no GitHub. Localmente já está com `git init` + commit inicial feitos; falta só `git remote add origin <url-do-seu-repo>` e `git push -u origin main`.
+> Esse workflow só roda depois que o repositório existir no GitHub. Inicialize o git na raiz do projeto (`git init`), commite, crie o repositório no GitHub, e então `git remote add origin <url-do-seu-repo>` + `git push -u origin main`.
