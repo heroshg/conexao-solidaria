@@ -1,6 +1,6 @@
 # Conexão Solidária
 
-MVP de plataforma digital para a ONG fictícia "Esperança Solidária" — gestão de campanhas de arrecadação e doadores. Arquitetura, decisões e regras de negócio completas estão em [`CLAUDE.md`](./CLAUDE.md).
+MVP de plataforma digital para a ONG fictícia "Esperança Solidária" — gestão de campanhas de arrecadação e doadores. Diagrama de arquitetura e justificativa de banco de dados estão na seção [Documentação](#documentação) abaixo.
 
 3 serviços: `Identity.Api`, `Campaigns.Api` (Web APIs, Controllers) e `Donations.Worker` (consumer RabbitMQ, sem API de negócio).
 
@@ -122,7 +122,7 @@ kubectl get pods -n conexao-solidaria -o wide
 
 ### 9. Subir o Kong API Gateway (bônus, opcional)
 
-DB-less/declarativo — não bloqueante para o MVP, mas roteia por path para `Identity.Api` e `Campaigns.Api` (ver `CLAUDE.md`). `Donations.Worker` fica de fora (sem API de negócio).
+DB-less/declarativo — não bloqueante para o MVP, mas roteia por path para `Identity.Api` e `Campaigns.Api`. `Donations.Worker` fica de fora (sem API de negócio).
 
 ```bash
 kubectl apply -f deploy/kong/
@@ -153,7 +153,7 @@ kubectl port-forward svc/kong 8001:8001 -n conexao-solidaria              # Kong
 
 ### 11. Credenciais do seed inicial (`NgoManager`)
 
-Criadas automaticamente no primeiro start do `Identity.Api` — não há endpoint público para isso (ver `CLAUDE.md`).
+Criadas automaticamente no primeiro start do `Identity.Api` — não há endpoint público para cadastro de `NgoManager`.
 
 ```
 email: admin@esperancasolidaria.org
@@ -174,8 +174,8 @@ curl -s -X POST http://localhost:5011/campaigns \
   -H "Content-Type: application/json" -H "Authorization: Bearer $NGO_TOKEN" \
   -d '{"title":"Campanha de Inverno","description":"Agasalhos","startDate":"2026-09-02T00:00:00Z","endDate":"2026-10-01T00:00:00Z","financialGoal":10000}'
 
-# 3. Cadastrar e logar como doador, depois enviar POST /donations
-#    (ver endpoints completos no CLAUDE.md)
+# 3. Cadastrar (POST /donors) e logar (POST /auth/login) como doador, depois enviar POST /donations
+#    com o CampaignId da campanha criada acima e o token do doador
 
 # 4. Conferir o painel público — o valor é atualizado pelo Donations.Worker de forma assíncrona
 curl -s http://localhost:5011/campaigns/public
