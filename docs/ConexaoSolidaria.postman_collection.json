@@ -1,0 +1,613 @@
+{
+  "info": {
+    "name": "Conexão Solidária — Validação Hackathon (via Kong Gateway)",
+    "description": "Bate direto no Kong (porta 8000), que roteia para Identity.Api e Campaigns.Api. Cada pasta cobre um requisito funcional do enunciado do hackathon, com testes automáticos (pm.test) validando status code e regras de negócio. Rode a coleção inteira (Collection Runner) de cima pra baixo — os requests capturam tokens/IDs automaticamente para os seguintes.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000" },
+    { "key": "ngo_email", "value": "admin@esperancasolidaria.org" },
+    { "key": "ngo_password", "value": "Admin@12345" },
+    { "key": "ngo_token", "value": "" },
+    { "key": "donor_email", "value": "" },
+    { "key": "donor_password", "value": "Doador@12345" },
+    { "key": "donor_cpf", "value": "" },
+    { "key": "donor_token", "value": "" },
+    { "key": "campaign_id", "value": "" },
+    { "key": "cancelled_campaign_id", "value": "" },
+    { "key": "donation_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Autenticação (JWT + RBAC)",
+      "item": [
+        {
+          "name": "Login GestorONG (seed NgoManager)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{ngo_email}}\",\n  \"password\": \"{{ngo_password}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Retorna accessToken', () => pm.expect(json.accessToken).to.be.a('string').and.not.empty);",
+                  "pm.test('Role é NgoManager (GestorONG)', () => pm.expect(json.role).to.eql('NgoManager'));",
+                  "pm.test('Resposta nunca expõe senha', () => pm.expect(JSON.stringify(json).toLowerCase()).to.not.include('password'));",
+                  "pm.collectionVariables.set('ngo_token', json.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login com senha errada (deve falhar — 401)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{ngo_email}}\",\n  \"password\": \"SenhaErrada@123\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('Status 401', () => pm.response.to.have.status(401));"] }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Cadastro de Doador (público)",
+      "item": [
+        {
+          "name": "Cadastrar doador (sucesso)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Gera email e CPF novos a cada execução, pra coleção poder rodar de novo sem esbarrar em unicidade.",
+                  "pm.collectionVariables.set('donor_email', 'doador' + Date.now() + '@example.com');",
+                  "",
+                  "function calcDigit(digits) {",
+                  "  let sum = 0, factor = digits.length + 1;",
+                  "  for (const d of digits) sum += d * factor--;",
+                  "  const rest = sum % 11;",
+                  "  return rest < 2 ? 0 : 11 - rest;",
+                  "}",
+                  "function generateValidCpf() {",
+                  "  let base;",
+                  "  do {",
+                  "    base = Array.from({ length: 9 }, () => Math.floor(Math.random() * 9));",
+                  "  } while (base.every(d => d === base[0]));",
+                  "  const d1 = calcDigit(base);",
+                  "  const d2 = calcDigit([...base, d1]);",
+                  "  return base.join('') + d1 + d2;",
+                  "}",
+                  "pm.collectionVariables.set('donor_cpf', generateValidCpf());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.test('Retorna id, fullName, email', () => {",
+                  "  pm.expect(json.id).to.be.a('string');",
+                  "  pm.expect(json.fullName).to.eql('Doador Teste Postman');",
+                  "  pm.expect(json.email).to.eql(pm.collectionVariables.get('donor_email'));",
+                  "});",
+                  "pm.test('Resposta nunca expõe senha nem CPF em texto plano', () => {",
+                  "  const body = JSON.stringify(json).toLowerCase();",
+                  "  pm.expect(body).to.not.include('password');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/donors", "host": ["{{base_url}}"], "path": ["donors"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Doador Teste Postman\",\n  \"email\": \"{{donor_email}}\",\n  \"cpf\": \"{{donor_cpf}}\",\n  \"password\": \"{{donor_password}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Cadastrar doador — email duplicado (deve falhar — 409)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/donors", "host": ["{{base_url}}"], "path": ["donors"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Outro Nome\",\n  \"email\": \"{{ngo_email}}\",\n  \"cpf\": \"52998224725\",\n  \"password\": \"Outra@12345\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Erro menciona Email', () => pm.expect(pm.response.text()).to.include('Email'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cadastrar doador — CPF duplicado (deve falhar — 409)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": ["pm.collectionVariables.set('donor_email_2', 'doador' + Date.now() + '2@example.com');"]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('Erro menciona Cpf (não confunde com Email)', () => pm.expect(pm.response.text()).to.include('Cpf'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/donors", "host": ["{{base_url}}"], "path": ["donors"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Doador CPF Repetido\",\n  \"email\": \"{{donor_email_2}}\",\n  \"cpf\": \"{{donor_cpf}}\",\n  \"password\": \"Outra@12345\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Cadastrar doador — CPF inválido (deve falhar — 400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/donors", "host": ["{{base_url}}"], "path": ["donors"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"CPF Invalido\",\n  \"email\": \"cpf-invalido-{{$timestamp}}@example.com\",\n  \"cpf\": \"11111111111\",\n  \"password\": \"Teste@12345\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('Status 400', () => pm.response.to.have.status(400));"] }
+            }
+          ]
+        },
+        {
+          "name": "Login Doador",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/auth/login", "host": ["{{base_url}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{donor_email}}\",\n  \"password\": \"{{donor_password}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Role é Donor (Doador)', () => pm.expect(json.role).to.eql('Donor'));",
+                  "pm.collectionVariables.set('donor_token', json.accessToken);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Gestão de Campanhas (GestorONG)",
+      "item": [
+        {
+          "name": "Criar campanha (sucesso)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ngo_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/campaigns", "host": ["{{base_url}}"], "path": ["campaigns"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Campanha Postman {{$timestamp}}\",\n  \"description\": \"Criada pela collection de validação\",\n  \"startDate\": \"2026-09-01T00:00:00Z\",\n  \"endDate\": \"2027-12-31T00:00:00Z\",\n  \"financialGoal\": 5000\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.test('Status inicial é Active', () => pm.expect(json.status).to.eql('Active'));",
+                  "pm.test('AmountRaised começa em 0', () => pm.expect(json.amountRaised).to.eql(0));",
+                  "pm.collectionVariables.set('campaign_id', json.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Criar campanha — sem token (deve falhar — 401)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/campaigns", "host": ["{{base_url}}"], "path": ["campaigns"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Sem Token\",\n  \"description\": \"x\",\n  \"startDate\": \"2026-09-01T00:00:00Z\",\n  \"endDate\": \"2027-12-31T00:00:00Z\",\n  \"financialGoal\": 100\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('Status 401', () => pm.response.to.have.status(401));"] }
+            }
+          ]
+        },
+        {
+          "name": "Criar campanha — token de Doador (RBAC, deve falhar — 403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{donor_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/campaigns", "host": ["{{base_url}}"], "path": ["campaigns"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Doador Tentando Criar\",\n  \"description\": \"x\",\n  \"startDate\": \"2026-09-01T00:00:00Z\",\n  \"endDate\": \"2027-12-31T00:00:00Z\",\n  \"financialGoal\": 100\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 403 (autenticado, mas sem a role certa)', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Criar campanha — EndDate no passado (regra de negócio, deve falhar — 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ngo_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/campaigns", "host": ["{{base_url}}"], "path": ["campaigns"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Data no Passado\",\n  \"description\": \"x\",\n  \"startDate\": \"2020-01-01T00:00:00Z\",\n  \"endDate\": \"2020-06-01T00:00:00Z\",\n  \"financialGoal\": 100\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('Status 400', () => pm.response.to.have.status(400));"] }
+            }
+          ]
+        },
+        {
+          "name": "Criar campanha — FinancialGoal <= 0 (regra de negócio, deve falhar — 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ngo_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/campaigns", "host": ["{{base_url}}"], "path": ["campaigns"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Meta Zerada\",\n  \"description\": \"x\",\n  \"startDate\": \"2026-09-01T00:00:00Z\",\n  \"endDate\": \"2027-12-31T00:00:00Z\",\n  \"financialGoal\": 0\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('Status 400', () => pm.response.to.have.status(400));"] }
+            }
+          ]
+        },
+        {
+          "name": "Editar campanha (PUT, sucesso)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ngo_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/campaigns/{{campaign_id}}", "host": ["{{base_url}}"], "path": ["campaigns", "{{campaign_id}}"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Campanha Postman (editada)\",\n  \"description\": \"Descrição atualizada pela collection\",\n  \"startDate\": \"2026-09-01T00:00:00Z\",\n  \"endDate\": \"2027-12-31T00:00:00Z\",\n  \"financialGoal\": 8000,\n  \"status\": \"Active\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('FinancialGoal atualizado', () => pm.expect(json.financialGoal).to.eql(8000));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Buscar campanha por Id (autenticado)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{donor_token}}" }],
+            "url": { "raw": "{{base_url}}/campaigns/{{campaign_id}}", "host": ["{{base_url}}"], "path": ["campaigns", "{{campaign_id}}"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 (qualquer role autenticada pode ver)', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Id bate com o esperado', () => pm.expect(json.id).to.eql(pm.collectionVariables.get('campaign_id')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Criar campanha para cancelar (setup)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ngo_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/campaigns", "host": ["{{base_url}}"], "path": ["campaigns"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Campanha que será cancelada {{$timestamp}}\",\n  \"description\": \"Setup para o teste de doação em campanha encerrada\",\n  \"startDate\": \"2026-09-01T00:00:00Z\",\n  \"endDate\": \"2027-12-31T00:00:00Z\",\n  \"financialGoal\": 1000\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('cancelled_campaign_id', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancelar campanha (PUT status=Cancelled)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ngo_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/campaigns/{{cancelled_campaign_id}}", "host": ["{{base_url}}"], "path": ["campaigns", "{{cancelled_campaign_id}}"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Campanha que será cancelada\",\n  \"description\": \"Setup para o teste de doação em campanha encerrada\",\n  \"startDate\": \"2026-09-01T00:00:00Z\",\n  \"endDate\": \"2027-12-31T00:00:00Z\",\n  \"financialGoal\": 1000,\n  \"status\": \"Cancelled\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Status agora é Cancelled', () => pm.expect(pm.response.json().status).to.eql('Cancelled'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Painel de Transparência (público)",
+      "item": [
+        {
+          "name": "Listar campanhas públicas (sem token)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/campaigns/public", "host": ["{{base_url}}"], "path": ["campaigns", "public"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 sem autenticação', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Retorna uma lista', () => pm.expect(json).to.be.an('array'));",
+                  "pm.test('Cada item só tem Title, FinancialGoal, AmountRaised (sem Id/Status/Description)', () => {",
+                  "  json.forEach(c => {",
+                  "    pm.expect(Object.keys(c).sort()).to.eql(['amountRaised', 'financialGoal', 'title']);",
+                  "  });",
+                  "});",
+                  "pm.test('A campanha cancelada NÃO aparece na lista pública', () => {",
+                  "  const titles = json.map(c => c.title);",
+                  "  pm.expect(titles).to.not.include('Campanha que será cancelada');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Processo de Doação (Doador logado)",
+      "item": [
+        {
+          "name": "Doar para campanha ativa (sucesso)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{donor_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/donations", "host": ["{{base_url}}"], "path": ["donations"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campaignId\": \"{{campaign_id}}\",\n  \"donationAmount\": 250.50\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 202 Accepted (assíncrono — API não grava o valor na hora)', () => pm.response.to.have.status(202));",
+                  "const json = pm.response.json();",
+                  "pm.test('DonorId veio do token, não foi preciso informar', () => pm.expect(json.donorId).to.be.a('string').and.not.empty);",
+                  "pm.collectionVariables.set('donation_id', json.donationId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Doar — sem token (deve falhar — 401)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/donations", "host": ["{{base_url}}"], "path": ["donations"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campaignId\": \"{{campaign_id}}\",\n  \"donationAmount\": 10\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('Status 401', () => pm.response.to.have.status(401));"] }
+            }
+          ]
+        },
+        {
+          "name": "Doar — token de GestorONG (RBAC, deve falhar — 403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ngo_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/donations", "host": ["{{base_url}}"], "path": ["donations"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campaignId\": \"{{campaign_id}}\",\n  \"donationAmount\": 10\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('Status 403', () => pm.response.to.have.status(403));"] }
+            }
+          ]
+        },
+        {
+          "name": "Doar — campanha cancelada (regra de negócio, deve falhar — 409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{donor_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/donations", "host": ["{{base_url}}"], "path": ["donations"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"campaignId\": \"{{cancelled_campaign_id}}\",\n  \"donationAmount\": 10\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 409 (campanha encerrada/cancelada não recebe doação)', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Conferir painel público após doação (Worker já aplicou?)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Dá um tempo pro Worker consumir a fila (Campaigns.Api -> RabbitMQ -> Donations.Worker) antes de checar.",
+                  "// Se sua versão do Postman não suportar 'await' aqui, rode este request de novo manualmente ~2s depois do anterior.",
+                  "await new Promise((resolve) => setTimeout(resolve, 2500));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "const found = json.find(c => c.title === 'Campanha Postman (editada)');",
+                  "pm.test('Campanha aparece no painel público', () => pm.expect(found).to.not.be.undefined);",
+                  "pm.test('AmountRaised reflete a doação (>= 250.50) — aplicado pelo Donations.Worker de forma assíncrona', () => {",
+                  "  pm.expect(found.amountRaised).to.be.at.least(250.50);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/campaigns/public", "host": ["{{base_url}}"], "path": ["campaigns", "public"] }
+          }
+        }
+      ]
+    }
+  ]
+}
