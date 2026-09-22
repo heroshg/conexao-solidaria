@@ -1,0 +1,24 @@
+# Only AMQP (5672) is opened to the two services that actually publish/consume — the
+# management UI (15672) gets no pod-to-pod allow rule at all, so no compromised pod can reach
+# it (kubectl port-forward for the human operator is unaffected, see default-deny-ingress.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-rabbitmq-amqp-from-app-services
+  namespace: conexao-solidaria
+spec:
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: campaigns-api
+        - podSelector:
+            matchLabels:
+              app: donations-worker
+      ports:
+        - port: 5672

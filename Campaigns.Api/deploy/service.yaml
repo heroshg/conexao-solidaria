@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: campaigns-api
+  namespace: conexao-solidaria
+spec:
+  selector:
+    app: campaigns-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+  # Reach it for demo/testing via:
+  # kubectl port-forward svc/campaigns-api 5011:8080 -n conexao-solidaria

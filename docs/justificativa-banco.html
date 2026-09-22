@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Justificativa de banco de dados</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    color: #1a1a1a;
+    line-height: 1.55;
+    font-size: 13px;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .subtitle { color: #555; font-size: 13px; margin: 0 0 22px; }
+  h2 { font-size: 15px; margin: 26px 0 8px; color: #1a3d8f; border-bottom: 1px solid #dde3f0; padding-bottom: 4px; }
+  h3 { font-size: 13px; margin: 14px 0 4px; }
+  p { margin: 6px 0; text-align: justify; }
+  ul, ol { margin: 6px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  code { background: #f2f4f8; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; font-size: 12px; }
+  th, td { border: 1px solid #dde3f0; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #eef2fb; }
+  .callout {
+    background: #f7f8fc; border-left: 3px solid #2f6fed; padding: 10px 14px; margin: 10px 0; font-size: 12.5px;
+  }
+  .callout.warn { border-left-color: #c2620a; background: #fff8f0; }
+  .footer { margin-top: 30px; font-size: 11px; color: #888; border-top: 1px solid #eee; padding-top: 8px; }
+  .step { margin: 4px 0 4px 4px; }
+  .step b { color: #1a3d8f; }
+</style>
+</head>
+<body>
+
+<h1>Justificativa da(s) escolha(s) de banco de dados</h1>
+<p class="subtitle">Projeto "Conexão Solidária" — plataforma da ONG Esperança Solidária · Hackathon</p>
+
+<h2>1. Critério de decisão</h2>
+<p>
+  Este documento justifica a escolha de banco de dados a partir do <strong>problema que o domínio de doações
+  impõe</strong> — volume de escrita esperado, requisitos de consistência e a garantia de que uma doação nunca
+  seja contada duas vezes — e não a partir de conveniência de ferramenta. "O EF Core tem ótimo suporte a
+  Postgres" é um fato real, mas é uma <strong>decisão de tecnologia</strong> (like escolher entre duas libs que
+  fazem a mesma coisa), não uma <strong>decisão de arquitetura</strong> (qual categoria de banco o problema
+  exige). As seções 2 a 4 tratam da decisão de arquitetura; a seção 5 trata da escolha específica de motor
+  dentro da categoria relacional já decidida.
+</p>
+
+<h2>2. A carga real do domínio de doações</h2>
+<p>
+  O enunciado do hackathon pede mensageria assíncrona porque, ao receber uma doação, a API <strong>não</strong>
+  deve escrever o valor arrecadado direto no banco — deve publicar um evento e devolver a resposta na hora. Vale
+  entender exatamente <em>que problema</em> isso resolve, porque é esse problema (e não a "escala" em abstrato)
+  que orienta a escolha de banco:
+</p>
+<ul>
+  <li>O gargalo que a fila resolve é <strong>contenção no caminho síncrono do HTTP</strong> — muitas doações
+    chegando ao mesmo tempo não podem travar ou derrubar o request de quem está doando. Isso é resolvido
+    devolvendo <code>202 Accepted</code> assim que o evento é publicado, antes de qualquer escrita de
+    negócio acontecer.</li>
+  <li>Quem efetivamente escreve o valor (<code>Donations.Worker</code>) faz isso <strong>consumindo a fila de
+    forma sequencial/controlada</strong> — não é um enxame de requisições concorrentes brutas batendo no
+    banco, é um processo que drena uma fila em ritmo previsível.</li>
+  <li>Este não é um sistema de escala Big Tech: é uma plataforma de doações de uma ONG. Mesmo num pico
+    "viral" de campanha, estamos falando de dezenas de doações por segundo, não milhares — e nem nesse cenário
+    otimista o gargalo seria o banco, seria o processamento de pagamento externo (gateway de cartão/PIX), que
+    nem faz parte deste MVP.</li>
+</ul>
+<div class="callout">
+  Conclusão da seção: o problema de escala deste domínio já foi resolvido pela fila, antes do banco entrar em
+  cena. A pergunta que resta para o banco não é "aguenta o volume?" (um Postgres single-node aguenta milhares
+  de transações por segundo, ordens de grandeza acima do que este domínio gera) — é "garante que cada doação
+  seja aplicada exatamente uma vez, mesmo sob reentrega da fila?". É essa a pergunta que orienta a escolha.
+</div>
+
+<h2>3. O requisito central: consistência e idempotência sem duplicidade</h2>
+<p>
+  Mensageria como RabbitMQ garante entrega <strong>at-least-once</strong> — nunca exactly-once. Isso significa
+  que o mesmo <code>DonationReceivedEvent</code> pode, em cenários de falha/retry, chegar ao
+  <code>Donations.Worker</code> mais de uma vez. Se o valor fosse simplesmente somado a cada mensagem recebida,
+  uma reentrega dobraria o valor arrecadado de uma campanha — um bug financeiro grave, não cosmético. A
+  arquitetura resolve isso empurrando a garantia de unicidade para o único lugar que pode oferecê-la de forma
+  confiável sob concorrência: <strong>uma constraint do banco dentro de uma transação ACID</strong>, não uma
+  checagem feita "à mão" no código da aplicação.
+</p>
+<p>Como isso é aplicado, passo a passo, em <code>ApplyDonationUseCase</code>:</p>
+<div class="step">
+  <p><b>1.</b> O evento carrega um <code>DonationId</code> único, gerado pela <code>Campaigns.Api</code> no
+  momento em que a intenção de doação é aceita.</p>
+  <p><b>2.</b> A tabela <code>donations.ProcessedDonations</code> usa exatamente esse <code>DonationId</code>
+  como <strong>chave primária</strong> — não um id novo gerado pelo Worker.</p>
+  <p><b>3.</b> Numa <strong>única transação</strong> (padrão Unit of Work / Template Method, replicado nos 3
+  serviços), o Worker faz duas coisas: incrementa <code>Campaign.AmountRaised</code> <em>e</em> insere a linha
+  em <code>ProcessedDonations</code>.</p>
+  <p><b>4.</b> Se a mensagem for reentregue, o segundo <code>INSERT</code> viola a chave primária já existente
+  → a transação inteira sofre rollback → <strong>o incremento de <code>AmountRaised</code> nunca é aplicado
+  duas vezes</strong>, porque ele estava na mesma transação que falhou.</p>
+  <p><b>5.</b> Esse "conflito esperado" é classificado pelo <code>UnitOfWorkTemplate</code>
+  (<code>TryClassifyAsConflict</code>) e devolvido como resultado, não como exception — o Worker simplesmente
+  loga "já processado" e segue. Uma falha genuína (não relacionada a duplicidade) dispara retry exponencial e,
+  se persistir, vai para a fila <code>_error</code> (DLQ) — nada é perdido silenciosamente.</p>
+</div>
+<div class="callout">
+  O ponto central: a garantia de "nunca duplicar" não depende do código estar certo em todas as
+  condições de corrida possíveis — depende de uma constraint que o banco fisicamente recusa violar. É o padrão
+  "deixe o banco aplicar o invariante", só possível porque a transação combina leitura, escrita de negócio e
+  checagem de unicidade como uma <strong>operação atômica única</strong>.
+</div>
+
+<h2>4. Por que um banco NoSQL seria overengineering aqui</h2>
+<p>
+  Bancos NoSQL que escalam escrita horizontalmente (DynamoDB, Cassandra, MongoDB em cluster sharded) compram
+  esse throughput abrindo mão exatamente da propriedade da seção 3: transação atômica multi-operação com
+  isolamento forte entre múltiplos itens. Recriar a mesma garantia de idempotência nesses bancos exigiria:
+</p>
+<ul>
+  <li><strong>Writes condicionais por item</strong> (ex.: <code>ConditionExpression</code> do DynamoDB) para
+    emular a unique constraint — já é mais código e mais casos de borda do que uma <code>PRIMARY KEY</code>.</li>
+  <li>E, mesmo assim, <strong>nenhuma atomicidade nativa</strong> entre "incrementar o contador" e "registrar
+    o ledger de idempotência" como uma única operação — a maioria desses bancos não oferece transação
+    multi-documento com a mesma simplicidade/custo de um banco relacional (quando oferece, como o MongoDB
+    moderno, é uma feature "pesada", adicionada por cima de um modelo pensado para não precisar dela).</li>
+  <li>Isso empurraria a responsabilidade de consistência para <strong>lógica de compensação na aplicação</strong>
+    (sagas, reconciliação, um serviço de idempotência à parte) — ou seja, reconstruir manualmente, com mais
+    código e mais superfície de bug, o que o Postgres já garante de graça com <code>UNIQUE</code> + transação.</li>
+</ul>
+<p>
+  Motor NoSQL distribuído existe para sustentar escrita geograficamente distribuída em milhares de nós — um
+  problema de escala real, mas que não é o desta plataforma (seção 2). Adotar um aqui seria pagar o custo de
+  engenharia (mais complexidade operacional, uma tecnologia nova pra treinar/depurar/monitorar, garantias de
+  consistência mais fracas a compensar manualmente) para resolver um problema de escala que não existe,
+  enquanto se abre mão da propriedade que resolve o problema real do domínio (duplicidade). É o oposto do
+  trade-off que faria sentido: trocar simplicidade e correção "de graça" por complexidade sem necessidade —
+  a definição de overengineering.
+</p>
+
+<h2>5. Motor relacional escolhido: PostgreSQL</h2>
+<p>
+  Com a categoria já decidida (relacional, pela seção 3), a escolha entre motores relacionais (Postgres,
+  MySQL, SQL Server, etc.) é, sim, mais uma questão de tecnologia do que de arquitetura — mas vale registrar os
+  critérios:
+</p>
+<ul>
+  <li><strong>Código aberto e imagem Docker leve/madura</strong> (<code>postgres:16</code>), sem custo de
+    licença, adequado a um cluster Kubernetes local (kind) e ao prazo do hackathon.</li>
+  <li><strong>Suporte nativo a múltiplos schemas dentro de um mesmo banco físico</strong>, usado
+    deliberadamente para separar a fronteira de propriedade de tabelas entre <code>Campaigns.Api</code> e
+    <code>Donations.Worker</code> mesmo compartilhando a instância (ver seção 6) — schemas de primeira classe
+    são um recurso mais maduro em Postgres do que em vários outros motores relacionais.</li>
+  <li><strong>Ecossistema/tooling do time</strong>: suporte de primeira classe no EF Core via
+    <code>Npgsql.EntityFrameworkCore.PostgreSQL</code> (migrations, tipos ricos, transações ACID expostas
+    diretamente). Isto facilita a implementação do padrão Unit of Work já decidido na arquitetura — mas
+    reforça uma decisão de arquitetura já tomada, não é a razão dela.</li>
+</ul>
+
+<h2>6. Topologia: dois bancos físicos, não três</h2>
+<p>
+  A decisão mais discutível da arquitetura é ter <strong>dois</strong> bancos físicos Postgres — <code>identity</code>
+  e <code>campaigns</code> — em vez de um banco por serviço (três bancos, um também para
+  <code>Donations.Worker</code>). Essa segunda opção seria o "database per service" mais estrito, mas foi
+  descartada conscientemente.
+</p>
+
+<table>
+  <tr><th>Banco físico</th><th>Quem acessa</th><th>O que guarda</th></tr>
+  <tr>
+    <td><code>identity</code> (db1)</td>
+    <td>Somente <code>Identity.Api</code></td>
+    <td>Contas de usuário (<code>Donor</code>/<code>NgoManager</code>), hash Argon2id, claims de role</td>
+  </tr>
+  <tr>
+    <td><code>campaigns</code> (db2)</td>
+    <td><code>Campaigns.Api</code> (dono) + <code>Donations.Worker</code> (acesso restrito)</td>
+    <td>
+      schema <code>public</code>: tabela <code>Campaigns</code> (dona: <code>Campaigns.Api</code>)<br>
+      schema <code>donations</code>: tabela <code>ProcessedDonations</code> (dona: <code>Donations.Worker</code>)
+    </td>
+  </tr>
+</table>
+
+<h3>6.1 Por que o Worker não tem banco próprio</h3>
+<p>
+  Como visto na seção 2, o requisito de mensageria assíncrona existe para desacoplar a escrita da doação do
+  caminho síncrono da API — um problema de <em>contenção no request síncrono</em>, não um problema de
+  isolamento físico de armazenamento. Como o <code>Donations.Worker</code> processa a fila de forma
+  sequencial/controlada, completamente fora desse caminho síncrono, ele pode escrever com segurança direto no
+  banco de <code>Campaigns.Api</code> sem reintroduzir a contenção que a fila já resolveu. Introduzir um
+  terceiro banco físico só para o Worker adicionaria:
+</p>
+<ul>
+  <li>mais um Postgres para provisionar, migrar e manter saudável no cluster (custo operacional sem benefício
+    de consistência, já que o valor final mora logicamente em <code>Campaigns.Api</code> de qualquer forma);</li>
+  <li>a necessidade de <strong>sincronizar</strong> o <code>AmountRaised</code> entre dois bancos diferentes —
+    o que reintroduziria, entre bancos, o mesmo tipo de inconsistência distribuída que a seção 3 evita dentro
+    de um único banco via transação atômica. Trocaríamos um problema resolvido (contenção) por outro pior
+    (consistência entre bancos, sem a rede de proteção de uma transação ACID única).</li>
+</ul>
+
+<h3>6.2 Como a fronteira de propriedade fica clara mesmo assim</h3>
+<p>
+  Para não perder a clareza de "quem é dono de qual tabela" só porque a instância física é compartilhada,
+  <code>Donations.Worker</code> usa um <strong>schema Postgres próprio</strong> (<code>donations</code>) dentro
+  do banco <code>campaigns</code>:
+</p>
+<ul>
+  <li><code>donations.ProcessedDonations</code> — ledger de idempotência, schema e migrations
+    <strong>exclusivos</strong> do Worker (<code>Donations.Infrastructure</code> é o único que gera migration
+    para essa tabela).</li>
+  <li>O Worker também enxerga a tabela <code>public.Campaigns</code> — mas só através de um repositório enxuto
+    (<code>CampaignAmountRecord</code>, mapeando apenas <code>Status</code> e <code>AmountRaised</code>), marcado
+    explicitamente com <code>ExcludeFromMigrations()</code>: o Worker nunca gera nem aplica migration nessa
+    tabela, só lê e escreve nas colunas que precisa. A tabela continua migrada e "dona" por
+    <code>Campaigns.Api</code>.</li>
+  <li><code>Campaigns.Api</code>, por sua vez, nunca escreve em <code>AmountRaised</code> — mesmo tendo acesso
+    de leitura ao mesmo banco físico, essa regra é reforçada em código (nenhum use case ou repositório de
+    <code>Campaigns.Api</code> toca essa coluna), não só por schema.</li>
+</ul>
+
+<div class="callout">
+  Resultado prático: mesma robustez de "quem escreve o quê" que um banco fisicamente separado daria, sem o
+  custo de sincronizar dois bancos ou de reintroduzir contenção no caminho síncrono.
+</div>
+
+<h3>6.3 Por que <code>identity</code> continua isolado</h3>
+<p>
+  Diferente do par <code>Campaigns.Api</code>/<code>Donations.Worker</code>, não há nenhuma razão de
+  desempenho ou de fila para <code>Identity.Api</code> compartilhar banco com os outros dois — os dados de
+  conta/credencial são de um domínio completamente diferente (autenticação), sensíveis (hash de senha), e não
+  são lidos em runtime por nenhum outro serviço (o JWT já carrega as claims necessárias, assinado com RSA;
+  <code>Campaigns.Api</code> só valida a assinatura com a chave pública, nunca consulta <code>Identity.Api</code>
+  nem seu banco). Isolamento físico total aqui é estritamente melhor: menor superfície de acesso a dados
+  sensíveis, e nenhum acoplamento a ganhar isolando.
+</p>
+
+<h2>7. Trade-offs considerados</h2>
+<table>
+  <tr><th>Alternativa</th><th>Por que não foi escolhida</th></tr>
+  <tr>
+    <td>NoSQL (ex.: MongoDB, DynamoDB) para Campaigns/Donations</td>
+    <td>Resolve um problema de escala de escrita distribuída que este domínio não tem (seção 2), abrindo mão da
+      transação atômica multi-operação que garante idempotência sem duplicidade de graça (seção 3) — exigiria
+      reconstruir essa garantia manualmente (seção 4). Overengineering: mais complexidade, sem ganho.</td>
+  </tr>
+  <tr>
+    <td>3 bancos físicos (um por serviço, incluindo o Worker)</td>
+    <td>Reintroduz consistência distribuída entre bancos que a transação atômica única evita; custo operacional
+      extra sem ganho de isolamento real, já que o dado final mora em <code>Campaigns.Api</code> de qualquer
+      forma.</td>
+  </tr>
+  <tr>
+    <td>1 banco único para os três serviços</td>
+    <td>Perde o isolamento de <code>identity</code>, que é dado sensível de autenticação sem motivo de
+      compartilhamento — nenhum ganho, só risco.</td>
+  </tr>
+</table>
+
+<h2>8. Conclusão</h2>
+<p>
+  A escolha de banco desta plataforma é guiada pelo requisito de negócio mais crítico do domínio de doações —
+  <strong>nunca contar a mesma doação duas vezes, mesmo sob reentrega de mensagens</strong> — e não por
+  familiaridade com ferramenta. Um banco relacional com transações ACID entrega essa garantia através de uma
+  simples <code>PRIMARY KEY</code> mais uma transação atômica; um NoSQL distribuído entregaria mais capacidade
+  de escrita que este domínio não precisa (seção 2), ao custo de reconstruir manualmente a garantia de
+  idempotência que já vem pronta (seção 4) — exatamente a definição de overengineering para este cenário.
+  PostgreSQL foi então o motor relacional escolhido por critérios de tecnologia (seção 5), e a topologia de
+  dois bancos físicos (<code>identity</code> isolado; <code>campaigns</code> compartilhado entre
+  <code>Campaigns.Api</code> e <code>Donations.Worker</code>, com fronteira de propriedade reforçada por schema
+  e por convenção de código) equilibra o requisito de mensageria assíncrona, a simplicidade operacional exigida
+  pelo prazo do hackathon, e o isolamento de dados sensíveis onde ele realmente importa.
+</p>
+
+<div class="footer">
+  Conexão Solidária — documento gerado a partir de <code>docs/justificativa-banco.html</code>. Ver também
+  <code>CLAUDE.md</code> (seção "Arquitetura") e <code>docs/arquitetura.png</code>.
+</div>
+
+</body>
+</html>

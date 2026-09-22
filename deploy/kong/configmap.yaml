@@ -1,0 +1,32 @@
+# DB-less/declarativo — decisão registrada em CLAUDE.md: evita provisionar mais um banco só
+# pro Gateway. Roteia só para Identity.Api e Campaigns.Api; Donations.Worker não tem API de
+# negócio (só /health e /metrics), então fica fora do Kong.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-config
+  namespace: conexao-solidaria
+data:
+  kong.yml: |
+    _format_version: "3.0"
+
+    services:
+      - name: identity-api
+        url: http://identity-api:8080
+        routes:
+          - name: identity-auth
+            paths: ["/auth"]
+            strip_path: false
+          - name: identity-donors
+            paths: ["/donors"]
+            strip_path: false
+
+      - name: campaigns-api
+        url: http://campaigns-api:8080
+        routes:
+          - name: campaigns-campaigns
+            paths: ["/campaigns"]
+            strip_path: false
+          - name: campaigns-donations
+            paths: ["/donations"]
+            strip_path: false

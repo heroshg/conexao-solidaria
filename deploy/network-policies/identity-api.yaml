@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-identity-api-from-kong-and-prometheus
+  namespace: conexao-solidaria
+spec:
+  podSelector:
+    matchLabels:
+      app: identity-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: kong
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 8080

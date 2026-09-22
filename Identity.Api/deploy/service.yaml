@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-api
+  namespace: conexao-solidaria
+spec:
+  selector:
+    app: identity-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+  # Reach it for demo/testing via:
+  # kubectl port-forward svc/identity-api 5010:8080 -n conexao-solidaria

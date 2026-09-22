@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: donations-worker
+  namespace: conexao-solidaria
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: donations-worker
+  template:
+    metadata:
+      labels:
+        app: donations-worker
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true # Dockerfile switches to the built-in $APP_UID non-root user
+      containers:
+        - name: donations-worker
+          image: conexao-solidaria/donations-worker:latest
+          imagePullPolicy: IfNotPresent # built locally + `kind load docker-image`, never pulled from a registry
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development"
+            - name: ConnectionStrings__CampaignsDb
+              value: "Host=postgres;Port=5432;Database=campaigns;Username=postgres;Password=postgres"
+            - name: ConnectionStrings__RabbitMq
+              value: "amqp://donations_app:donations_app_dev_pw@rabbitmq:5672"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10

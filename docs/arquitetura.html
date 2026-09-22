@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Conexão Solidária — Arquitetura</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #f7f8fa; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+  svg text { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+</style>
+</head>
+<body>
+<svg width="1600" height="1020" viewBox="0 0 1600 1020" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#333"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#c2620a"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#1f8a4c"/>
+    </marker>
+    <marker id="arrowPink" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#b3245c"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="1020" fill="#f7f8fa"/>
+
+  <text x="800" y="40" text-anchor="middle" font-size="26" font-weight="700" fill="#1a1a1a">Conexão Solidária — Arquitetura de Microsserviços</text>
+  <text x="800" y="64" text-anchor="middle" font-size="14" fill="#555">Identity.Api + Campaigns.Api (Web APIs) · Donations.Worker (consumer) · RabbitMQ · 2 bancos PostgreSQL · Kong · Prometheus/Grafana</text>
+
+  <!-- Client -->
+  <rect x="640" y="90" width="320" height="70" rx="10" fill="#ffffff" stroke="#333" stroke-width="1.5"/>
+  <text x="800" y="118" text-anchor="middle" font-size="15" font-weight="600" fill="#1a1a1a">Cliente</text>
+  <text x="800" y="138" text-anchor="middle" font-size="12" fill="#555">Postman / Swagger / Browser</text>
+
+  <!-- Kong -->
+  <rect x="590" y="200" width="420" height="90" rx="10" fill="#f3f0ff" stroke="#6c5ce7" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="800" y="228" text-anchor="middle" font-size="15" font-weight="600" fill="#4b3fb5">Kong API Gateway</text>
+  <text x="800" y="248" text-anchor="middle" font-size="11" fill="#5b4fc7">DB-less (bônus) · roteia por path</text>
+  <text x="800" y="266" text-anchor="middle" font-size="10" fill="#5b4fc7">/auth,/donors → Identity · /campaigns,/donations → Campaigns</text>
+
+  <line x1="800" y1="160" x2="800" y2="198" stroke="#333" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Identity.Api -->
+  <rect x="280" y="330" width="320" height="130" rx="10" fill="#eef4ff" stroke="#2f6fed" stroke-width="1.5"/>
+  <text x="440" y="358" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">Identity.Api</text>
+  <text x="440" y="380" text-anchor="middle" font-size="12" fill="#333">Auth (login) · JWT (assina c/ RSA privada)</text>
+  <text x="440" y="398" text-anchor="middle" font-size="12" fill="#333">RBAC (NgoManager / Donor) · Cadastro de Donor</text>
+  <text x="440" y="420" text-anchor="middle" font-size="11" fill="#666">/health · /metrics</text>
+  <text x="440" y="440" text-anchor="middle" font-size="11" fill="#666">seed inicial de 1 NgoManager</text>
+
+  <!-- Campaigns.Api -->
+  <rect x="1000" y="330" width="320" height="130" rx="10" fill="#eef4ff" stroke="#2f6fed" stroke-width="1.5"/>
+  <text x="1160" y="358" text-anchor="middle" font-size="16" font-weight="700" fill="#1a1a1a">Campaigns.Api</text>
+  <text x="1160" y="380" text-anchor="middle" font-size="12" fill="#333">CRUD de Campaign · Painel público</text>
+  <text x="1160" y="398" text-anchor="middle" font-size="12" fill="#333">Recebe intenção de doação → publica evento</text>
+  <text x="1160" y="420" text-anchor="middle" font-size="11" fill="#666">valida JWT c/ chave pública RSA (sem chamar Identity)</text>
+  <text x="1160" y="440" text-anchor="middle" font-size="11" fill="#666">/health · /metrics</text>
+
+  <line x1="750" y1="290" x2="480" y2="328" stroke="#333" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="850" y1="290" x2="1090" y2="328" stroke="#333" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Identity DB -->
+  <rect x="320" y="560" width="240" height="90" rx="10" fill="#eafaf0" stroke="#1f8a4c" stroke-width="1.5"/>
+  <text x="440" y="592" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1a1a">PostgreSQL · db1</text>
+  <text x="440" y="612" text-anchor="middle" font-size="12" fill="#333">database "identity"</text>
+  <text x="440" y="630" text-anchor="middle" font-size="11" fill="#666">isolado — só Identity.Api acessa</text>
+  <line x1="440" y1="460" x2="440" y2="558" stroke="#1f8a4c" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+
+  <!-- Campaigns DB -->
+  <rect x="1040" y="560" width="240" height="110" rx="10" fill="#eafaf0" stroke="#1f8a4c" stroke-width="1.5"/>
+  <text x="1160" y="590" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1a1a">PostgreSQL · db2</text>
+  <text x="1160" y="608" text-anchor="middle" font-size="12" fill="#333">database "campaigns"</text>
+  <text x="1160" y="623" text-anchor="middle" font-size="10" fill="#666">schema public: tabela Campaigns</text>
+  <text x="1160" y="637" text-anchor="middle" font-size="10" fill="#666">schema donations: ProcessedDonations</text>
+  <text x="1160" y="652" text-anchor="middle" font-size="9" fill="#999">compartilhado com Donations.Worker</text>
+  <line x1="1160" y1="460" x2="1160" y2="558" stroke="#1f8a4c" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+
+  <!-- RabbitMQ -->
+  <rect x="1370" y="330" width="200" height="90" rx="10" fill="#fff4e5" stroke="#c2620a" stroke-width="1.5"/>
+  <text x="1470" y="360" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1a1a">RabbitMQ</text>
+  <text x="1470" y="378" text-anchor="middle" font-size="11" fill="#333">exchange/queue</text>
+  <text x="1470" y="394" text-anchor="middle" font-size="11" fill="#333">donations (+ _error/DLQ)</text>
+  <line x1="1320" y1="375" x2="1368" y2="375" stroke="#c2620a" stroke-width="1.5" stroke-dasharray="8,4" marker-end="url(#arrowOrange)"/>
+  <text x="1344" y="365" text-anchor="middle" font-size="10" fill="#c2620a">publica</text>
+
+  <!-- Donations.Worker -->
+  <rect x="1370" y="560" width="200" height="110" rx="10" fill="#eef4ff" stroke="#2f6fed" stroke-width="1.5"/>
+  <text x="1470" y="588" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1a1a">Donations.Worker</text>
+  <text x="1470" y="606" text-anchor="middle" font-size="11" fill="#333">Consumer (sem API</text>
+  <text x="1470" y="620" text-anchor="middle" font-size="11" fill="#333">de negócio)</text>
+  <text x="1470" y="638" text-anchor="middle" font-size="10" fill="#666">retry 5x → fila _error</text>
+  <text x="1470" y="653" text-anchor="middle" font-size="10" fill="#666">/health · /metrics</text>
+
+  <line x1="1470" y1="420" x2="1470" y2="558" stroke="#c2620a" stroke-width="1.5" stroke-dasharray="8,4" marker-end="url(#arrowOrange)"/>
+  <text x="1500" y="490" text-anchor="middle" font-size="10" fill="#c2620a">consome</text>
+
+  <line x1="1368" y1="685" x2="1282" y2="685" stroke="#1f8a4c" stroke-width="1.5" stroke-dasharray="2,3" marker-end="url(#arrowGreen)"/>
+  <text x="1315" y="705" text-anchor="middle" font-size="10" fill="#1f8a4c">escreve AmountRaised + ProcessedDonations (idempotência, mesma tx)</text>
+
+  <!-- Observability -->
+  <rect x="600" y="790" width="220" height="90" rx="10" fill="#fdeef4" stroke="#b3245c" stroke-width="1.5"/>
+  <text x="710" y="822" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1a1a">Prometheus</text>
+  <text x="710" y="840" text-anchor="middle" font-size="11" fill="#333">scrape /metrics a cada 15s</text>
+  <text x="710" y="856" text-anchor="middle" font-size="10" fill="#666">identity-api, campaigns-api, donations-worker</text>
+
+  <rect x="920" y="790" width="220" height="90" rx="10" fill="#fdeef4" stroke="#b3245c" stroke-width="1.5"/>
+  <text x="1030" y="822" text-anchor="middle" font-size="14" font-weight="700" fill="#1a1a1a">Grafana</text>
+  <text x="1030" y="840" text-anchor="middle" font-size="11" fill="#333">dashboard provisionado</text>
+  <text x="1030" y="856" text-anchor="middle" font-size="10" fill="#666">CPU / memória / taxa de requisições</text>
+
+  <line x1="820" y1="835" x2="918" y2="835" stroke="#b3245c" stroke-width="1.5" marker-end="url(#arrowPink)"/>
+  <text x="869" y="825" text-anchor="middle" font-size="10" fill="#b3245c">datasource</text>
+
+  <line x1="440" y1="460" x2="670" y2="800" stroke="#b3245c" stroke-width="1" stroke-dasharray="2,3" marker-end="url(#arrowPink)"/>
+  <line x1="1160" y1="460" x2="740" y2="800" stroke="#b3245c" stroke-width="1" stroke-dasharray="2,3" marker-end="url(#arrowPink)"/>
+  <line x1="1470" y1="670" x2="800" y2="800" stroke="#b3245c" stroke-width="1" stroke-dasharray="2,3" marker-end="url(#arrowPink)"/>
+
+  <!-- Legend -->
+  <rect x="40" y="920" width="1520" height="70" rx="8" fill="#ffffff" stroke="#ccc"/>
+  <line x1="60" y1="940" x2="100" y2="940" stroke="#333" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="110" y="944" font-size="12" fill="#333">HTTP síncrono</text>
+
+  <line x1="260" y1="940" x2="300" y2="940" stroke="#1f8a4c" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+  <text x="310" y="944" font-size="12" fill="#333">Acesso a banco (EF Core)</text>
+
+  <line x1="530" y1="940" x2="570" y2="940" stroke="#c2620a" stroke-width="1.5" stroke-dasharray="8,4" marker-end="url(#arrowOrange)"/>
+  <text x="580" y="944" font-size="12" fill="#333">Mensageria assíncrona (RabbitMQ / MassTransit)</text>
+
+  <line x1="920" y1="940" x2="960" y2="940" stroke="#b3245c" stroke-width="1.5" stroke-dasharray="2,3" marker-end="url(#arrowPink)"/>
+  <text x="970" y="944" font-size="12" fill="#333">Scrape de métricas / datasource</text>
+
+  <rect x="1230" y="928" width="26" height="20" rx="4" fill="#f3f0ff" stroke="#6c5ce7" stroke-dasharray="4,3"/>
+  <text x="1264" y="944" font-size="12" fill="#333">Componente bônus (Kong)</text>
+</svg>
+</body>
+</html>

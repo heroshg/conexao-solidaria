@@ -1,0 +1,16 @@
+# Baseline: no pod in this namespace accepts traffic from any other pod unless an explicit
+# NetworkPolicy in this folder allows it. Scope note: ingress-only — egress isn't restricted
+# here (DNS/outbound stays unaffected), and this does NOT block `kubectl port-forward` or
+# kubelet readiness/liveness probes, since both originate outside the pod network's
+# podSelector-matched traffic that NetworkPolicy governs. Without this, every pod (e.g.
+# donations-worker, which has no business API) could reach Postgres on 5432 or RabbitMQ's
+# management UI on 15672 directly, bypassing every intended entry point.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: conexao-solidaria
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: donations-worker
+  namespace: conexao-solidaria
+spec:
+  selector:
+    app: donations-worker
+  ports:
+    - port: 8080
+      targetPort: 8080
+  # No business API here on purpose — this Service only exists so /health and /metrics
+  # (Prometheus scraping) are reachable inside the cluster. See CLAUDE.md "Arquitetura de código".

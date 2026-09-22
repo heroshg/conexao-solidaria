@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/Campaigns.Api/">
+    <Project Path="Campaigns.Api/Campaigns.Api/Campaigns.Api.csproj" />
+    <Project Path="Campaigns.Api/Campaigns.Application/Campaigns.Application.csproj" />
+    <Project Path="Campaigns.Api/Campaigns.Domain.Tests/Campaigns.Domain.Tests.csproj" />
+    <Project Path="Campaigns.Api/Campaigns.Domain/Campaigns.Domain.csproj" />
+    <Project Path="Campaigns.Api/Campaigns.Infrastructure/Campaigns.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/Donations.Worker/">
+    <Project Path="Donations.Worker/Donations.Application/Donations.Application.csproj" />
+    <Project Path="Donations.Worker/Donations.Domain.Tests/Donations.Domain.Tests.csproj" />
+    <Project Path="Donations.Worker/Donations.Domain/Donations.Domain.csproj" />
+    <Project Path="Donations.Worker/Donations.Infrastructure/Donations.Infrastructure.csproj" />
+    <Project Path="Donations.Worker/Donations.Worker/Donations.Worker.csproj" />
+  </Folder>
+  <Folder Name="/Identity.Api/">
+    <Project Path="Identity.Api/Identity.Api/Identity.Api.csproj" />
+    <Project Path="Identity.Api/Identity.Application/Identity.Application.csproj" />
+    <Project Path="Identity.Api/Identity.Domain.Tests/Identity.Domain.Tests.csproj" />
+    <Project Path="Identity.Api/Identity.Domain/Identity.Domain.csproj" />
+    <Project Path="Identity.Api/Identity.Infrastructure/Identity.Infrastructure.csproj" />
+  </Folder>
+</Solution>

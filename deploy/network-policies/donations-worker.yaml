@@ -1,0 +1,20 @@
+# donations-worker has no business API (see CLAUDE.md) — the only legitimate pod-to-pod caller
+# is Prometheus scraping /metrics.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-donations-worker-from-prometheus
+  namespace: conexao-solidaria
+spec:
+  podSelector:
+    matchLabels:
+      app: donations-worker
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 8080

@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong
+  namespace: conexao-solidaria
+spec:
+  selector:
+    app: kong
+  ports:
+    - name: proxy
+      port: 8000
+      targetPort: 8000
+    - name: admin
+      port: 8001
+      targetPort: 8001
+  # Reach it for demo/testing via:
+  # kubectl port-forward svc/kong 8000:8000 -n conexao-solidaria
+  # ex.: curl http://localhost:8000/campaigns/public

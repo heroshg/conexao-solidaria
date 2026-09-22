@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-api
+  namespace: conexao-solidaria
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: identity-api
+  template:
+    metadata:
+      labels:
+        app: identity-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true # Dockerfile switches to the built-in $APP_UID non-root user
+      containers:
+        - name: identity-api
+          image: conexao-solidaria/identity-api:latest
+          imagePullPolicy: IfNotPresent # built locally + `kind load docker-image`, never pulled from a registry
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development" # enables Swagger UI for the demo; switch to Production for a real deploy
+            - name: ConnectionStrings__IdentityDb
+              value: "Host=postgres;Port=5432;Database=identity;Username=postgres;Password=postgres"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: jwt-signing-key
+              mountPath: /app/keys
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: jwt-signing-key
+          secret:
+            # Created out-of-band (not committed) — see README:
+            # kubectl create secret generic jwt-signing-key -n conexao-solidaria \
+            #   --from-file=jwt-private.pem=<path-to-private-key>
+            secretName: jwt-signing-key

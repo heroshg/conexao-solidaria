@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-from-app-services
+  namespace: conexao-solidaria
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: identity-api
+        - podSelector:
+            matchLabels:
+              app: campaigns-api
+        - podSelector:
+            matchLabels:
+              app: donations-worker
+      ports:
+        - port: 5432

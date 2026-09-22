@@ -1,0 +1,20 @@
+# Points Grafana at the folder where configmap-dashboard.yaml mounts the dashboard JSON, so
+# the dashboard exists from first boot — no manual click-through in the UI (the requisito
+# says the Grafana dashboard "não pode ser mockado").
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: conexao-solidaria
+data:
+  provider.yml: |
+    apiVersion: 1
+    providers:
+      - name: conexao-solidaria
+        orgId: 1
+        folder: ""
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards

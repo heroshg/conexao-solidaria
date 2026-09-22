@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: campaigns-api
+  namespace: conexao-solidaria
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: campaigns-api
+  template:
+    metadata:
+      labels:
+        app: campaigns-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true # Dockerfile switches to the built-in $APP_UID non-root user
+      containers:
+        - name: campaigns-api
+          image: conexao-solidaria/campaigns-api:latest
+          imagePullPolicy: IfNotPresent # built locally + `kind load docker-image`, never pulled from a registry
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Development" # enables Swagger UI for the demo; switch to Production for a real deploy
+            - name: ConnectionStrings__CampaignsDb
+              value: "Host=postgres;Port=5432;Database=campaigns;Username=postgres;Password=postgres"
+            - name: ConnectionStrings__RabbitMq
+              value: "amqp://donations_app:donations_app_dev_pw@rabbitmq:5672"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: jwt-public-key
+              mountPath: /app/keys
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: jwt-public-key
+          secret:
+            # Created out-of-band (not committed) — see README. Must be the public key
+            # matching identity-api's jwt-signing-key private key:
+            # kubectl create secret generic jwt-public-key -n conexao-solidaria \
+            #   --from-file=jwt-public.pem=<path-to-public-key>
+            secretName: jwt-public-key

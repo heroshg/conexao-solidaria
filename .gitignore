@@ -1,0 +1,32 @@
+# Claude Code project instructions — internal, not part of the public deliverable
+CLAUDE.md
+
+# Build output
+bin/
+obj/
+out/
+publish/
+
+# Test output
+TestResults/
+*.trx
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.DotSettings.user
+
+# Locally generated RSA keys (dev fallback in RsaKeyProvider) — never commit real keys.
+# In K8s these come from a Secret instead — see /deploy/identity-api and /deploy/campaigns-api.
+**/keys/
+
+# EF Core
+*.mdf
+*.ldf
+
+# OS
+.DS_Store
+Thumbs.db

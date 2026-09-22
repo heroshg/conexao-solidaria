@@ -1,0 +1,21 @@
+# Grafana queries Prometheus as its datasource pod-to-pod; nothing else needs to reach it
+# (the Prometheus UI itself is only ever accessed by the human operator via port-forward,
+# which bypasses NetworkPolicy — see default-deny-ingress.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-from-grafana
+  namespace: conexao-solidaria
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: grafana
+      ports:
+        - port: 9090

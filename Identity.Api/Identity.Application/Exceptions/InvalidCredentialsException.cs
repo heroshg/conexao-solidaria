@@ -1,0 +1,3 @@
+namespace Identity.Application.Exceptions;
+
+public sealed class InvalidCredentialsException() : Exception("Invalid email or password.");
