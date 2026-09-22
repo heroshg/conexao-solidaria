@@ -11,6 +11,10 @@ permissions:
   contents: read
   packages: write
   security-events: write
+  # github/codeql-action/upload-sarif calls the "get a workflow run" REST endpoint (for its own
+  # run-metadata/telemetry lookup) — without this it fails with "Resource not accessible by
+  # integration" even though the SARIF upload itself only needs security-events: write.
+  actions: read
 
 jobs:
   build-and-test:
